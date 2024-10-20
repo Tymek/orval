@@ -4,7 +4,7 @@ import {
   ParameterObject,
   PathItemObject,
   ReferenceObject,
-} from 'openapi3-ts';
+} from 'openapi3-ts/oas30';
 import {
   getBody,
   getOperationId,
@@ -18,6 +18,8 @@ import {
   ContextSpecs,
   GeneratorVerbOptions,
   GeneratorVerbsOptions,
+  NormalizedInputOptions,
+  NormalizedMutator,
   NormalizedOperationOptions,
   NormalizedOutputOptions,
   NormalizedOverrideOutput,
@@ -41,6 +43,7 @@ const generateVerbOptions = async ({
   output,
   operation,
   route,
+  pathRoute,
   verbParameters = [],
   context,
 }: {
@@ -48,6 +51,7 @@ const generateVerbOptions = async ({
   output: NormalizedOutputOptions;
   operation: OperationObject;
   route: string;
+  pathRoute: string;
   verbParameters?: Array<ReferenceObject | ParameterObject>;
   components?: ComponentsObject;
   context: ContextSpecs;
@@ -122,26 +126,35 @@ const generateVerbOptions = async ({
     pathParams: parameters.path,
     operationId: operationId!,
     context,
+    output,
   });
 
-  const props = getProps({ body, queryParams, params, headers });
+  const props = getProps({
+    body,
+    queryParams,
+    params,
+    headers,
+    operationName,
+    context,
+  });
 
   const mutator = await generateMutator({
     output: output.target,
     name: operationName,
     mutator: override?.mutator,
     workspace: context.workspace,
-    tsconfig: context.tsconfig,
+    tsconfig: context.output.tsconfig,
   });
 
   const formData =
-    isString(override?.formData) || isObject(override?.formData)
+    (isString(override?.formData) || isObject(override?.formData)) &&
+    body.formData
       ? await generateMutator({
           output: output.target,
           name: operationName,
           mutator: override.formData,
           workspace: context.workspace,
-          tsconfig: context.tsconfig,
+          tsconfig: context.output.tsconfig,
         })
       : undefined;
 
@@ -152,7 +165,18 @@ const generateVerbOptions = async ({
           name: operationName,
           mutator: override.formUrlEncoded,
           workspace: context.workspace,
-          tsconfig: context.tsconfig,
+          tsconfig: context.output.tsconfig,
+        })
+      : undefined;
+
+  const paramsSerializer =
+    isString(override?.paramsSerializer) || isObject(override?.paramsSerializer)
+      ? await generateMutator({
+          output: output.target,
+          name: 'paramsSerializer',
+          mutator: override.paramsSerializer as NormalizedMutator,
+          workspace: context.workspace,
+          tsconfig: context.output.tsconfig,
         })
       : undefined;
 
@@ -161,6 +185,8 @@ const generateVerbOptions = async ({
   const verbOption: GeneratorVerbOptions = {
     verb: verb as Verbs,
     tags,
+    route,
+    pathRoute,
     summary: operation.summary,
     operationId: operationId!,
     operationName,
@@ -173,9 +199,11 @@ const generateVerbOptions = async ({
     mutator,
     formData,
     formUrlEncoded,
+    paramsSerializer,
     override,
     doc,
     deprecated,
+    originalOperation: operation,
   };
 
   const transformer = await dynamicImport(
@@ -188,17 +216,21 @@ const generateVerbOptions = async ({
 
 export const generateVerbsOptions = ({
   verbs,
+  input,
   output,
   route,
+  pathRoute,
   context,
 }: {
   verbs: PathItemObject;
+  input: NormalizedInputOptions;
   output: NormalizedOutputOptions;
   route: string;
+  pathRoute: string;
   context: ContextSpecs;
 }): Promise<GeneratorVerbsOptions> =>
   asyncReduce(
-    Object.entries(verbs),
+    _filteredVerbs(verbs, input.filters),
     async (acc, [verb, operation]: [string, OperationObject]) => {
       if (isVerb(verb)) {
         const verbOptions = await generateVerbOptions({
@@ -206,6 +238,7 @@ export const generateVerbsOptions = ({
           output,
           verbParameters: verbs.parameters,
           route,
+          pathRoute,
           operation,
           context,
         });
@@ -217,3 +250,24 @@ export const generateVerbsOptions = ({
     },
     [] as GeneratorVerbsOptions,
   );
+
+export const _filteredVerbs = (
+  verbs: PathItemObject,
+  filters: NormalizedInputOptions['filters'],
+) => {
+  if (filters === undefined || filters.tags === undefined) {
+    return Object.entries(verbs);
+  }
+
+  return Object.entries(verbs).filter(
+    ([_verb, operation]: [string, OperationObject]) => {
+      const operationTags = operation.tags || [];
+      const filterTags = filters.tags || [];
+      return operationTags.some((tag) =>
+        filterTags.some((filterTag) =>
+          filterTag instanceof RegExp ? filterTag.test(tag) : filterTag === tag,
+        ),
+      );
+    },
+  );
+};

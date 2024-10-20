@@ -25,16 +25,21 @@ const generateTargetTags = (
     if (!currentOperation) {
       acc[tag] = {
         imports: operation.imports,
-        importsMSW: operation.importsMSW,
+        importsMock: operation.importsMock,
         mutators: operation.mutator ? [operation.mutator] : [],
+        clientMutators: operation.clientMutators ?? [],
         formData: operation.formData ? [operation.formData] : [],
         formUrlEncoded: operation.formUrlEncoded
           ? [operation.formUrlEncoded]
           : [],
+        paramsSerializer: operation.paramsSerializer
+          ? [operation.paramsSerializer]
+          : [],
         implementation: operation.implementation,
-        implementationMSW: {
-          function: operation.implementationMSW.function,
-          handler: operation.implementationMSW.handler,
+        implementationMock: {
+          function: operation.implementationMock.function,
+          handler: operation.implementationMock.handler,
+          handlerName: '  ' + operation.implementationMock.handlerName + '()',
         },
       };
 
@@ -45,14 +50,19 @@ const generateTargetTags = (
       implementation:
         currentOperation.implementation + operation.implementation,
       imports: [...currentOperation.imports, ...operation.imports],
-      importsMSW: [...currentOperation.importsMSW, ...operation.importsMSW],
-      implementationMSW: {
+      importsMock: [...currentOperation.importsMock, ...operation.importsMock],
+      implementationMock: {
         function:
-          currentOperation.implementationMSW.function +
-          operation.implementationMSW.function,
+          currentOperation.implementationMock.function +
+          operation.implementationMock.function,
         handler:
-          currentOperation.implementationMSW.handler +
-          operation.implementationMSW.handler,
+          currentOperation.implementationMock.handler +
+          operation.implementationMock.handler,
+        handlerName:
+          currentOperation.implementationMock.handlerName +
+          ',\n  ' +
+          operation.implementationMock.handlerName +
+          '()',
       },
       mutators: operation.mutator
         ? [...(currentOperation.mutators ?? []), operation.mutator]
@@ -69,6 +79,12 @@ const generateTargetTags = (
       formUrlEncoded: operation.formUrlEncoded
         ? [...(currentOperation.formUrlEncoded ?? []), operation.formUrlEncoded]
         : currentOperation.formUrlEncoded,
+      paramsSerializer: operation.paramsSerializer
+        ? [
+            ...(currentOperation.paramsSerializer ?? []),
+            operation.paramsSerializer,
+          ]
+        : currentOperation.paramsSerializer,
     };
 
     return acc;
@@ -83,84 +99,97 @@ export const generateTargetForTags = (
 
   const allTargetTags = Object.values(builder.operations)
     .map(addDefaultTagIfEmpty)
-    .reduce((acc, operation, index, arr) => {
-      const targetTags = generateTargetTags(acc, operation);
+    .reduce(
+      (acc, operation, index, arr) => {
+        const targetTags = generateTargetTags(acc, operation);
 
-      if (index === arr.length - 1) {
-        return Object.entries(targetTags).reduce<
-          Record<string, GeneratorTargetFull>
-        >((acc, [tag, target]) => {
-          const isMutator = !!target.mutators?.some((mutator) =>
-            isAngularClient ? mutator.hasThirdArg : mutator.hasSecondArg,
-          );
-          const operationNames = Object.values(builder.operations)
-            .filter(({ tags }) => tags.includes(tag))
-            .map(({ operationName }) => operationName);
+        if (index === arr.length - 1) {
+          return Object.entries(targetTags).reduce<
+            Record<string, GeneratorTargetFull>
+          >((acc, [tag, target]) => {
+            const isMutator = !!target.mutators?.some((mutator) =>
+              isAngularClient ? mutator.hasThirdArg : mutator.hasSecondArg,
+            );
+            const operationNames = Object.values(builder.operations)
+              .filter(({ tags }) => tags.map(kebab).includes(kebab(tag)))
+              .map(({ operationName }) => operationName);
 
-          const typescriptVersion =
-            options.packageJson?.dependencies?.['typescript'] ??
-            options.packageJson?.devDependencies?.['typescript'] ??
-            '4.4.0';
+            const typescriptVersion =
+              options.packageJson?.dependencies?.['typescript'] ??
+              options.packageJson?.devDependencies?.['typescript'] ??
+              '4.4.0';
 
-          const hasAwaitedType = compareVersions(typescriptVersion, '4.5.0');
+            const hasAwaitedType = compareVersions(typescriptVersion, '4.5.0');
 
-          const titles = builder.title({
-            outputClient: options.client,
-            title: pascal(tag),
-            customTitleFunc: options.override.title,
-          });
+            const titles = builder.title({
+              outputClient: options.client,
+              title: pascal(tag),
+              customTitleFunc: options.override.title,
+              output: options,
+            });
 
-          const footer = builder.footer({
-            outputClient: options?.client,
-            operationNames,
-            hasMutator: !!target.mutators?.length,
-            hasAwaitedType,
-            titles,
-          });
+            const footer = builder.footer({
+              outputClient: options?.client,
+              operationNames,
+              hasMutator: !!target.mutators?.length,
+              hasAwaitedType,
+              titles,
+              output: options,
+            });
 
-          const header = builder.header({
-            outputClient: options.client,
-            isRequestOptions: options.override.requestOptions !== false,
-            isMutator,
-            isGlobalMutator: !!options.override.mutator,
-            provideIn: options.override.angular.provideIn,
-            hasAwaitedType,
-            titles,
-          });
+            const header = builder.header({
+              outputClient: options.client,
+              isRequestOptions: options.override.requestOptions !== false,
+              isMutator,
+              isGlobalMutator: !!options.override.mutator,
+              provideIn: options.override.angular.provideIn,
+              hasAwaitedType,
+              titles,
+              output: options,
+              verbOptions: builder.verbOptions,
+              tag,
+              clientImplementation: target.implementation,
+            });
 
-          acc[tag] = {
-            implementation:
-              header.implementation +
-              target.implementation +
-              footer.implementation,
-            implementationMSW: {
-              function: target.implementationMSW.function,
-              handler:
-                header.implementationMSW +
-                target.implementationMSW.handler +
-                footer.implementationMSW,
-            },
-            imports: target.imports,
-            importsMSW: target.importsMSW,
-            mutators: target.mutators,
-            clientMutators: target.clientMutators,
-            formData: target.formData,
-            formUrlEncoded: target.formUrlEncoded,
-          };
+            acc[tag] = {
+              implementation:
+                header.implementation +
+                target.implementation +
+                footer.implementation,
+              implementationMock: {
+                function: target.implementationMock.function,
+                handler:
+                  target.implementationMock.handler +
+                  header.implementationMock +
+                  target.implementationMock.handlerName +
+                  footer.implementationMock,
+                handlerName: target.implementationMock.handlerName,
+              },
+              imports: target.imports,
+              importsMock: target.importsMock,
+              mutators: target.mutators,
+              clientMutators: target.clientMutators,
+              formData: target.formData,
+              formUrlEncoded: target.formUrlEncoded,
+              paramsSerializer: target.paramsSerializer,
+            };
 
-          return acc;
-        }, {});
-      }
+            return acc;
+          }, {});
+        }
 
-      return targetTags;
-    }, {} as { [key: string]: GeneratorTargetFull });
+        return targetTags;
+      },
+      {} as { [key: string]: GeneratorTargetFull },
+    );
 
   return Object.entries(allTargetTags).reduce<Record<string, GeneratorTarget>>(
     (acc, [tag, target]) => {
       acc[tag] = {
         ...target,
-        implementationMSW:
-          target.implementationMSW.function + target.implementationMSW.handler,
+        implementationMock:
+          target.implementationMock.function +
+          target.implementationMock.handler,
       };
 
       return acc;

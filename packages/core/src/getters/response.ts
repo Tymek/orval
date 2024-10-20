@@ -1,4 +1,4 @@
-import { ResponsesObject } from 'openapi3-ts';
+import { ResponsesObject } from 'openapi3-ts/oas30';
 import {
   ContextSpecs,
   GetterResponse,
@@ -37,6 +37,7 @@ export const getResponse = ({
     operationName,
     context,
     'void',
+    (type) => type.key.startsWith('2') + type.value,
   );
 
   const filteredTypes = contentType
@@ -56,6 +57,13 @@ export const getResponse = ({
       })
     : types;
 
+  const imports = filteredTypes.flatMap(({ imports }) => imports);
+  const schemas = filteredTypes.flatMap(({ schemas }) => schemas);
+
+  const contentTypes = [
+    ...new Set(filteredTypes.map(({ contentType }) => contentType)),
+  ];
+
   const groupedByStatus = filteredTypes.reduce<{
     success: ResReqTypesValue[];
     errors: ResReqTypesValue[];
@@ -71,27 +79,23 @@ export const getResponse = ({
     { success: [], errors: [] },
   );
 
-  const imports = filteredTypes.flatMap(({ imports }) => imports);
-  const schemas = filteredTypes.flatMap(({ schemas }) => schemas);
-
-  const contentTypes = [
-    ...new Set(filteredTypes.map(({ contentType }) => contentType)),
-  ];
-
   const success = groupedByStatus.success
     .map(({ value, formData }) => (formData ? 'Blob' : value))
     .join(' | ');
   const errors = groupedByStatus.errors.map(({ value }) => value).join(' | ');
 
+  const defaultType = filteredTypes.find(({ key }) => key === 'default')?.value;
+
   return {
     imports,
     definition: {
-      success: success || 'unknown',
-      errors: errors || 'unknown',
+      success: success || (defaultType ?? 'unknown'),
+      errors: errors || (defaultType ?? 'unknown'),
     },
     isBlob: success === 'Blob',
     types: groupedByStatus,
     contentTypes,
     schemas,
+    originalSchema: responses,
   };
 };

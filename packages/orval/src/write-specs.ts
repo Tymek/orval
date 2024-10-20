@@ -1,26 +1,25 @@
 import {
   createSuccessMessage,
   getFileInfo,
-  getSpecName,
   isRootKey,
   jsDoc,
   log,
   NormalizedOptions,
   OutputMode,
-  relativeSafe,
+  upath,
   writeSchemas,
   writeSingleMode,
   WriteSpecsBuilder,
   writeSplitMode,
   writeSplitTagsMode,
   writeTagsMode,
+  getMockFileExtensionByTypeName,
 } from '@orval/core';
 import chalk from 'chalk';
 import execa from 'execa';
 import fs from 'fs-extra';
 import uniq from 'lodash.uniq';
-import { InfoObject } from 'openapi3-ts';
-import path from 'path';
+import { InfoObject } from 'openapi3-ts/oas30';
 import { executeHook } from './utils';
 
 const getHeader = (
@@ -42,38 +41,47 @@ export const writeSpecs = async (
   options: NormalizedOptions,
   projectName?: string,
 ) => {
-  const { info, schemas, target } = builder;
+  const { info = { title: '', version: 0 }, schemas, target } = builder;
   const { output } = options;
   const projectTitle = projectName || info.title;
 
-  const specsName = Object.keys(schemas).reduce((acc, specKey) => {
-    const basePath = getSpecName(specKey, target);
-    const name = basePath.slice(1).split('/').join('-');
+  const specsName = Object.keys(schemas).reduce(
+    (acc, specKey) => {
+      const basePath = upath.getSpecName(specKey, target);
+      const name = basePath.slice(1).split('/').join('-');
 
-    acc[specKey] = name;
+      acc[specKey] = name;
 
-    return acc;
-  }, {} as Record<keyof typeof schemas, string>);
+      return acc;
+    },
+    {} as Record<keyof typeof schemas, string>,
+  );
 
-  const header = getHeader(output.override.header, info);
+  const header = getHeader(output.override.header, info as InfoObject);
 
   if (output.schemas) {
     const rootSchemaPath = output.schemas;
 
+    const fileExtension = ['tags', 'tags-split', 'split'].includes(output.mode)
+      ? '.ts'
+      : output.fileExtension ?? '.ts';
+
     await Promise.all(
       Object.entries(schemas).map(([specKey, schemas]) => {
         const schemaPath = !isRootKey(specKey, target)
-          ? path.join(rootSchemaPath, specsName[specKey])
+          ? upath.join(rootSchemaPath, specsName[specKey])
           : rootSchemaPath;
 
         return writeSchemas({
           schemaPath,
           schemas,
           target,
+          fileExtension,
           specsName,
           specKey,
           isRootKey: isRootKey(specKey, target),
           header,
+          indexFiles: output.indexFiles,
         });
       }),
     );
@@ -89,44 +97,67 @@ export const writeSpecs = async (
       output,
       specsName,
       header,
+      needSchema: !output.schemas && output.client !== 'zod',
     });
   }
 
   if (output.workspace) {
     const workspacePath = output.workspace;
     let imports = implementationPaths
-      .filter((path) => !path.endsWith('.msw.ts'))
+      .filter(
+        (path) =>
+          !output.mock ||
+          !path.endsWith(`.${getMockFileExtensionByTypeName(output.mock)}.ts`),
+      )
       .map((path) =>
-        relativeSafe(workspacePath, getFileInfo(path).pathWithoutExtension),
+        upath.relativeSafe(
+          workspacePath,
+          getFileInfo(path).pathWithoutExtension,
+        ),
       );
 
     if (output.schemas) {
       imports.push(
-        relativeSafe(workspacePath, getFileInfo(output.schemas).dirname),
+        upath.relativeSafe(workspacePath, getFileInfo(output.schemas).dirname),
       );
     }
 
-    const indexFile = path.join(workspacePath, '/index.ts');
+    if (output.indexFiles) {
+      const indexFile = upath.join(workspacePath, '/index.ts');
 
-    if (await fs.pathExists(indexFile)) {
-      const data = await fs.readFile(indexFile, 'utf8');
-      const importsNotDeclared = imports.filter((imp) => !data.includes(imp));
-      await fs.appendFile(
-        indexFile,
-        uniq(importsNotDeclared)
-          .map((imp) => `export * from '${imp}';`)
-          .join('\n') + '\n',
-      );
-    } else {
-      await fs.outputFile(
-        indexFile,
-        uniq(imports)
-          .map((imp) => `export * from '${imp}';`)
-          .join('\n') + '\n',
-      );
+      if (await fs.pathExists(indexFile)) {
+        const data = await fs.readFile(indexFile, 'utf8');
+        const importsNotDeclared = imports.filter((imp) => !data.includes(imp));
+        await fs.appendFile(
+          indexFile,
+          uniq(importsNotDeclared)
+            .map((imp) => `export * from '${imp}';`)
+            .join('\n') + '\n',
+        );
+      } else {
+        await fs.outputFile(
+          indexFile,
+          uniq(imports)
+            .map((imp) => `export * from '${imp}';`)
+            .join('\n') + '\n',
+        );
+      }
+
+      implementationPaths = [indexFile, ...implementationPaths];
     }
+  }
 
-    implementationPaths = [indexFile, ...implementationPaths];
+  if (builder.extraFiles.length) {
+    await Promise.all(
+      builder.extraFiles.map(async (file) =>
+        fs.outputFile(file.path, file.content),
+      ),
+    );
+
+    implementationPaths = [
+      ...implementationPaths,
+      ...builder.extraFiles.map((file) => file.path),
+    ];
   }
 
   const paths = [
@@ -151,6 +182,19 @@ export const writeSpecs = async (
           `⚠️  ${projectTitle ? `${projectTitle} - ` : ''}Prettier not found`,
         ),
       );
+    }
+  }
+
+  if (output.biome) {
+    try {
+      await execa('biome', ['check', '--write', ...paths]);
+    } catch (e: any) {
+      const message =
+        e.exitCode === 1
+          ? e.stdout + e.stderr
+          : `⚠️  ${projectTitle ? `${projectTitle} - ` : ''}biome not found`;
+
+      log(chalk.yellow(message));
     }
   }
 

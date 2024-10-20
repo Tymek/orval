@@ -1,10 +1,10 @@
-import { ReferenceObject, SchemaObject } from 'openapi3-ts';
+import { ReferenceObject, SchemaObject } from 'openapi3-ts/oas30';
 import { getEnum } from '../getters/enum';
 import { ContextSpecs, ResolverValue } from '../types';
 import { jsDoc } from '../utils';
 import { resolveValue } from './value';
 
-export const resolveObject = ({
+const resolveObjectOriginal = ({
   schema,
   propName,
   combined = false,
@@ -43,6 +43,7 @@ export const resolveObject = ({
       type: 'object',
       originalSchema: resolvedValue.originalSchema,
       isRef: resolvedValue.isRef,
+      hasReadonlyProps: resolvedValue.hasReadonlyProps,
     };
   }
 
@@ -51,6 +52,7 @@ export const resolveObject = ({
       resolvedValue.value,
       propName,
       resolvedValue.originalSchema?.['x-enumNames'],
+      context.output.override.useNativeEnums,
     );
 
     return {
@@ -68,8 +70,45 @@ export const resolveObject = ({
       type: 'enum',
       originalSchema: resolvedValue.originalSchema,
       isRef: resolvedValue.isRef,
+      hasReadonlyProps: resolvedValue.hasReadonlyProps,
     };
   }
 
   return resolvedValue;
+};
+
+const resolveObjectCacheMap = new Map<string, ResolverValue>();
+
+export const resolveObject = ({
+  schema,
+  propName,
+  combined = false,
+  context,
+}: {
+  schema: SchemaObject | ReferenceObject;
+  propName?: string;
+  combined?: boolean;
+  context: ContextSpecs;
+}): ResolverValue => {
+  const hashKey = JSON.stringify({
+    schema,
+    propName,
+    combined,
+    specKey: context.specKey,
+  });
+
+  if (resolveObjectCacheMap.has(hashKey)) {
+    return resolveObjectCacheMap.get(hashKey)!;
+  }
+
+  const result = resolveObjectOriginal({
+    schema,
+    propName,
+    combined,
+    context,
+  });
+
+  resolveObjectCacheMap.set(hashKey, result);
+
+  return result;
 };

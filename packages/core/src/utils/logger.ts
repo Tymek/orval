@@ -17,7 +17,18 @@ export const startMessage = ({
     }`,
   );
 
-export const errorMessage = (err: string) => log(chalk.red(err));
+export const logError = (err: unknown, tag?: string) =>
+  log(
+    chalk.red(
+      [
+        '🛑',
+        tag ? `${tag} -` : undefined,
+        err instanceof Error ? err.stack : err,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    ),
+  );
 
 export const mismatchArgsMessage = (mismatchArgs: string[]) =>
   log(
@@ -37,27 +48,27 @@ export const createSuccessMessage = (backend?: string) =>
 
 export const ibmOpenapiValidatorWarnings = (
   warnings: {
-    path: string;
+    path: string[];
     message: string;
   }[],
 ) => {
   log(chalk.yellow('(!) Warnings'));
 
   warnings.forEach((i) =>
-    log(chalk.yellow(`Message : ${i.message}\nPath    : ${i.path}`)),
+    log(chalk.yellow(`Message : ${i.message}\nPath    : ${i.path.join(', ')}`)),
   );
 };
 
 export const ibmOpenapiValidatorErrors = (
   errors: {
-    path: string;
+    path: string[];
     message: string;
   }[],
 ) => {
   log(chalk.red('(!) Errors'));
 
   errors.forEach((i) =>
-    log(chalk.red(`Message : ${i.message}\nPath    : ${i.path}`)),
+    log(chalk.red(`Message : ${i.message}\nPath    : ${i.path.join(', ')}`)),
   );
 };
 
@@ -122,8 +133,8 @@ export function createLogger(
             type === 'info'
               ? chalk.cyan.bold(prefix)
               : type === 'warn'
-              ? chalk.yellow.bold(prefix)
-              : chalk.red.bold(prefix);
+                ? chalk.yellow.bold(prefix)
+                : chalk.red.bold(prefix);
           return `${chalk.dim(new Date().toLocaleTimeString())} ${tag} ${msg}`;
         } else {
           return msg;

@@ -1,9 +1,7 @@
 import get from 'lodash.get';
-import { ReferenceObject } from 'openapi3-ts';
-import { resolve } from 'path';
-import url from 'url';
+import { ReferenceObject } from 'openapi3-ts/oas30';
 import { ContextSpecs } from '../types';
-import { getFileInfo, getSchemaFileName, isUrl, pascal } from '../utils';
+import { getFileInfo, isUrl, pascal, upath } from '../utils';
 
 type RefComponent = 'schemas' | 'responses' | 'parameters' | 'requestBodies';
 
@@ -23,6 +21,22 @@ export const RefComponentSuffix: Record<RefComponent, string> = {
 
 const regex = new RegExp('~1', 'g');
 
+const resolveUrl = (from: string, to: string): string => {
+  const resolvedUrl = new URL(to, new URL(from, 'resolve://'));
+  if (resolvedUrl.protocol === 'resolve:') {
+    // `from` is a relative URL.
+    const { pathname, search, hash } = resolvedUrl;
+    return pathname + search + hash;
+  }
+  return resolvedUrl.toString();
+};
+
+export interface RefInfo {
+  name: string;
+  originalName: string;
+  refPaths?: string[];
+  specKey?: string;
+}
 /**
  * Return the output type from the $ref
  *
@@ -31,12 +45,7 @@ const regex = new RegExp('~1', 'g');
 export const getRefInfo = (
   $ref: ReferenceObject['$ref'],
   context: ContextSpecs,
-): {
-  name: string;
-  originalName: string;
-  refPaths?: string[];
-  specKey?: string;
-} => {
+): RefInfo => {
   const [pathname, ref] = $ref.split('#');
 
   const refPaths = ref
@@ -45,12 +54,12 @@ export const getRefInfo = (
     .map((part) => part.replace(regex, '/'));
 
   const suffix = refPaths
-    ? get(context.override, [...refPaths.slice(0, 2), 'suffix'], '')
+    ? get(context.output.override, [...refPaths.slice(0, 2), 'suffix'], '')
     : '';
 
   const originalName = ref
     ? refPaths[refPaths.length - 1]
-    : getSchemaFileName(pathname);
+    : upath.getSchemaFileName(pathname);
 
   if (!pathname) {
     return {
@@ -61,8 +70,8 @@ export const getRefInfo = (
   }
 
   const path = isUrl(context.specKey)
-    ? url.resolve(context.specKey, pathname)
-    : resolve(getFileInfo(context.specKey).dirname, pathname);
+    ? resolveUrl(context.specKey, pathname)
+    : upath.resolve(getFileInfo(context.specKey).dirname, pathname);
 
   return {
     name: pascal(originalName) + suffix,

@@ -65,4 +65,50 @@ export default defineConfig({
       },
     },
   },
+  petstoreSplit: {
+    output: {
+      target: '../generated/axios/split/endpoints.ts',
+      schemas: '../generated/axios/split/model',
+      mock: true,
+      mode: 'split',
+      client: 'axios',
+    },
+    input: {
+      target: '../specifications/petstore.yaml',
+      override: {
+        transformer,
+      },
+    },
+  },
+  petstoreTags: {
+    output: {
+      target: '../generated/axios/tags/endpoints.ts',
+      schemas: '../generated/axios/tags/model',
+      mock: true,
+      mode: 'tags',
+      client: 'axios',
+    },
+    input: {
+      target: '../specifications/petstore.yaml',
+      override: {
+        transformer,
+      },
+    },
+  },
+  namedParameters: {
+    output: {
+      target: '../generated/axios/named-parameters/endpoints.ts',
+      schemas: '../generated/axios/named-parameters/model',
+      client: 'axios-functions',
+      override: {
+        useNamedParameters: true,
+      },
+    },
+    input: {
+      target: '../specifications/petstore.yaml',
+      override: {
+        transformer,
+      },
+    },
+  },
 });

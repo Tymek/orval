@@ -1,8 +1,14 @@
-import { SchemaObject } from 'openapi3-ts';
-import { ContextSpecs, ResolverValue } from '../types';
+import { SchemaObject } from 'openapi3-ts/oas30';
+import {
+  ContextSpecs,
+  ScalarValue,
+  OutputClient,
+  SchemaWithConst,
+} from '../types';
 import { escape, isString } from '../utils';
 import { getArray } from './array';
 import { getObject } from './object';
+import { resolveExampleRefs } from '../resolvers';
 
 /**
  * Return the typescript equivalent of open-api data type
@@ -18,8 +24,12 @@ export const getScalar = ({
   item: SchemaObject;
   name?: string;
   context: ContextSpecs;
-}): ResolverValue => {
-  const nullable = item.nullable ? ' | null' : '';
+}): ScalarValue => {
+  // NOTE: Angular client does not support nullable types
+  const isAngularClient = context.output.client === OutputClient.ANGULAR;
+  const nullable = item.nullable && !isAngularClient ? ' | null' : '';
+
+  const enumItems = item.enum?.filter((enumItem) => enumItem !== null);
 
   if (!item.type && item.items) {
     item.type = 'array';
@@ -28,12 +38,22 @@ export const getScalar = ({
   switch (item.type) {
     case 'number':
     case 'integer': {
-      let value = 'number';
+      let value =
+        item.format === 'int64' && context.output.override.useBigInt
+          ? 'bigint'
+          : 'number';
       let isEnum = false;
 
-      if (item.enum) {
-        value = item.enum.map((enumItem: string) => `${enumItem}`).join(' | ');
+      if (enumItems) {
+        value = enumItems
+          .map((enumItem: number | null) => `${enumItem}`)
+          .join(' | ');
         isEnum = true;
+      }
+
+      const itemWithConst = item as SchemaWithConst;
+      if (itemWithConst.const !== undefined) {
+        value = itemWithConst.const;
       }
 
       return {
@@ -43,17 +63,30 @@ export const getScalar = ({
         schemas: [],
         imports: [],
         isRef: false,
+        hasReadonlyProps: item.readOnly || false,
+        example: item.example,
+        examples: resolveExampleRefs(item.examples, context),
       };
     }
 
     case 'boolean':
+      let value = 'boolean';
+
+      const itemWithConst = item as SchemaWithConst;
+      if (itemWithConst.const !== undefined) {
+        value = itemWithConst.const;
+      }
+
       return {
-        value: 'boolean' + nullable,
+        value: value + nullable,
         type: 'boolean',
         isEnum: false,
         schemas: [],
         imports: [],
         isRef: false,
+        hasReadonlyProps: item.readOnly || false,
+        example: item.example,
+        examples: resolveExampleRefs(item.examples, context),
       };
 
     case 'array': {
@@ -72,13 +105,13 @@ export const getScalar = ({
       let value = 'string';
       let isEnum = false;
 
-      if (item.enum) {
-        value = `'${item.enum
-          .map((enumItem: string) =>
-            isString(enumItem) ? escape(enumItem) : `${enumItem}`,
+      if (enumItems) {
+        value = `${enumItems
+          .map((enumItem: string | null) =>
+            isString(enumItem) ? `'${escape(enumItem)}'` : `${enumItem}`,
           )
           .filter(Boolean)
-          .join(`' | '`)}'`;
+          .join(` | `)}`;
 
         isEnum = true;
       }
@@ -87,10 +120,15 @@ export const getScalar = ({
         value = 'Blob';
       }
 
-      if (context.override.useDates) {
+      if (context.output.override.useDates) {
         if (item.format === 'date' || item.format === 'date-time') {
           value = 'Date';
         }
+      }
+
+      const itemWithConst = item as SchemaWithConst;
+      if (itemWithConst.const) {
+        value = `'${itemWithConst.const}'`;
       }
 
       return {
@@ -100,6 +138,9 @@ export const getScalar = ({
         imports: [],
         schemas: [],
         isRef: false,
+        hasReadonlyProps: item.readOnly || false,
+        example: item.example,
+        examples: resolveExampleRefs(item.examples, context),
       };
     }
 
@@ -111,10 +152,32 @@ export const getScalar = ({
         imports: [],
         schemas: [],
         isRef: false,
+        hasReadonlyProps: item.readOnly || false,
       };
 
     case 'object':
     default: {
+      if (enumItems) {
+        const value = `${enumItems
+          .map((enumItem: unknown) =>
+            isString(enumItem) ? `'${escape(enumItem)}'` : `${enumItem}`,
+          )
+          .filter(Boolean)
+          .join(` | `)}`;
+
+        return {
+          value: value + nullable,
+          isEnum: true,
+          type: 'string',
+          imports: [],
+          schemas: [],
+          isRef: false,
+          hasReadonlyProps: item.readOnly || false,
+          example: item.example,
+          examples: resolveExampleRefs(item.examples, context),
+        };
+      }
+
       const { value, ...rest } = getObject({
         item,
         name,

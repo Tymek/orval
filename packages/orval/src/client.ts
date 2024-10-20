@@ -2,6 +2,8 @@ import angular from '@orval/angular';
 import axios from '@orval/axios';
 import {
   asyncReduce,
+  ClientFileBuilder,
+  ContextSpecs,
   generateDependencyImports,
   GeneratorClientFooter,
   GeneratorClientHeader,
@@ -13,27 +15,37 @@ import {
   GeneratorVerbOptions,
   GeneratorVerbsOptions,
   isFunction,
+  NormalizedOutputOptions,
   OutputClient,
   OutputClientFunc,
   pascal,
 } from '@orval/core';
-import { generateMSW } from '@orval/msw';
+import * as mock from '@orval/mock';
 import query from '@orval/query';
 import swr from '@orval/swr';
+import zod from '@orval/zod';
+import hono from '@orval/hono';
+import fetchClient from '@orval/fetch';
 
 const DEFAULT_CLIENT = OutputClient.AXIOS;
 
-export const GENERATOR_CLIENT: GeneratorClients = {
-  axios: axios({ type: 'axios' })(),
-  'axios-functions': axios({ type: 'axios-functions' })(),
-  angular: angular()(),
-  'react-query': query({ type: 'react-query' })(),
-  'svelte-query': query({ type: 'svelte-query' })(),
-  'vue-query': query({ type: 'vue-query' })(),
-  swr: swr()(),
-};
+const getGeneratorClient = (
+  outputClient: OutputClient | OutputClientFunc,
+  output: NormalizedOutputOptions,
+) => {
+  const GENERATOR_CLIENT: GeneratorClients = {
+    axios: axios({ type: 'axios' })(),
+    'axios-functions': axios({ type: 'axios-functions' })(),
+    angular: angular()(),
+    'react-query': query({ output, type: 'react-query' })(),
+    'svelte-query': query({ output, type: 'svelte-query' })(),
+    'vue-query': query({ output, type: 'vue-query' })(),
+    swr: swr()(),
+    zod: zod()(),
+    hono: hono()(),
+    fetch: fetchClient()(),
+  };
 
-const getGeneratorClient = (outputClient: OutputClient | OutputClientFunc) => {
   const generator = isFunction(outputClient)
     ? outputClient(GENERATOR_CLIENT)
     : GENERATOR_CLIENT[outputClient];
@@ -53,13 +65,25 @@ export const generateClientImports: GeneratorClientImports = ({
   hasSchemaDir,
   isAllowSyntheticDefaultImports,
   hasGlobalMutator,
+  hasTagsMutator,
+  hasParamsSerializerOptions,
   packageJson,
+  output,
 }) => {
-  const { dependencies } = getGeneratorClient(client);
+  const { dependencies } = getGeneratorClient(client, output);
   return generateDependencyImports(
     implementation,
     dependencies
-      ? [...dependencies(hasGlobalMutator, packageJson), ...imports]
+      ? [
+          ...dependencies(
+            hasGlobalMutator,
+            hasParamsSerializerOptions,
+            packageJson,
+            output.httpClient,
+            hasTagsMutator,
+          ),
+          ...imports,
+        ]
       : imports,
     specsName,
     hasSchemaDir,
@@ -75,8 +99,12 @@ export const generateClientHeader: GeneratorClientHeader = ({
   provideIn,
   hasAwaitedType,
   titles,
+  output,
+  verbOptions,
+  tag,
+  clientImplementation,
 }) => {
-  const { header } = getGeneratorClient(outputClient);
+  const { header } = getGeneratorClient(outputClient, output);
   return {
     implementation: header
       ? header({
@@ -86,9 +114,13 @@ export const generateClientHeader: GeneratorClientHeader = ({
           isMutator,
           provideIn,
           hasAwaitedType,
+          output,
+          verbOptions,
+          tag,
+          clientImplementation,
         })
       : '',
-    implementationMSW: `export const ${titles.implementationMSW} = () => [\n`,
+    implementationMock: `export const ${titles.implementationMock} = () => [\n`,
   };
 };
 
@@ -98,13 +130,14 @@ export const generateClientFooter: GeneratorClientFooter = ({
   hasMutator,
   hasAwaitedType,
   titles,
+  output,
 }) => {
-  const { footer } = getGeneratorClient(outputClient);
+  const { footer } = getGeneratorClient(outputClient, output);
 
   if (!footer) {
     return {
       implementation: '',
-      implementationMSW: `]\n`,
+      implementationMock: `\n]\n`,
     };
   }
 
@@ -137,7 +170,7 @@ export const generateClientFooter: GeneratorClientFooter = ({
 
   return {
     implementation,
-    implementationMSW: `]\n`,
+    implementationMock: `]\n`,
   };
 };
 
@@ -145,13 +178,14 @@ export const generateClientTitle: GeneratorClientTitle = ({
   outputClient = DEFAULT_CLIENT,
   title,
   customTitleFunc,
+  output,
 }) => {
-  const { title: generatorTitle } = getGeneratorClient(outputClient);
+  const { title: generatorTitle } = getGeneratorClient(outputClient, output);
 
   if (!generatorTitle) {
     return {
       implementation: '',
-      implementationMSW: `get${pascal(title)}MSW`,
+      implementationMock: `get${pascal(title)}Mock`,
     };
   }
 
@@ -159,12 +193,12 @@ export const generateClientTitle: GeneratorClientTitle = ({
     const customTitle = customTitleFunc(title);
     return {
       implementation: generatorTitle(customTitle),
-      implementationMSW: `get${pascal(customTitle)}MSW`,
+      implementationMock: `get${pascal(customTitle)}Mock`,
     };
   }
   return {
     implementation: generatorTitle(title),
-    implementationMSW: `get${pascal(title)}MSW`,
+    implementationMock: `get${pascal(title)}Mock`,
   };
 };
 
@@ -186,31 +220,47 @@ const generateMock = (
     return options.mock(verbOption, options);
   }
 
-  return generateMSW(verbOption, options);
+  return mock.generateMock(
+    verbOption,
+    options as typeof options & {
+      mock: Exclude<(typeof options)['mock'], Function | undefined>;
+    },
+  );
 };
 
 export const generateOperations = (
   outputClient: OutputClient | OutputClientFunc = DEFAULT_CLIENT,
   verbsOptions: GeneratorVerbsOptions,
   options: GeneratorOptions,
+  output: NormalizedOutputOptions,
 ): Promise<GeneratorOperations> => {
   return asyncReduce(
     verbsOptions,
     async (acc, verbOption) => {
-      const { client: generatorClient } = getGeneratorClient(outputClient);
+      const { client: generatorClient } = getGeneratorClient(
+        outputClient,
+        output,
+      );
       const client = await generatorClient(verbOption, options, outputClient);
-      const msw = generateMock(verbOption, options);
+
+      if (!client.implementation) {
+        return acc;
+      }
+
+      const generatedMock = generateMock(verbOption, options);
 
       acc[verbOption.operationId] = {
         implementation: verbOption.doc + client.implementation,
         imports: client.imports,
-        implementationMSW: msw.implementation,
-        importsMSW: msw.imports,
+        // @ts-expect-error // FIXME
+        implementationMock: generatedMock.implementation,
+        importsMock: generatedMock.imports,
         tags: verbOption.tags,
         mutator: verbOption.mutator,
         clientMutators: client.mutators,
         formData: verbOption.formData,
         formUrlEncoded: verbOption.formUrlEncoded,
+        paramsSerializer: verbOption.paramsSerializer,
         operationName: verbOption.operationName,
       };
 
@@ -218,4 +268,22 @@ export const generateOperations = (
     },
     {} as GeneratorOperations,
   );
+};
+
+export const generateExtraFiles = (
+  outputClient: OutputClient | OutputClientFunc = DEFAULT_CLIENT,
+  verbsOptions: Record<string, GeneratorVerbOptions>,
+  output: NormalizedOutputOptions,
+  context: ContextSpecs,
+): Promise<ClientFileBuilder[]> => {
+  const { extraFiles: generateExtraFiles } = getGeneratorClient(
+    outputClient,
+    output,
+  );
+
+  if (!generateExtraFiles) {
+    return Promise.resolve([]);
+  }
+
+  return generateExtraFiles(verbsOptions, output, context);
 };

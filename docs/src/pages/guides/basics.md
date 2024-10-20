@@ -3,7 +3,7 @@ id: basics
 title: Basics
 ---
 
-You should define a OpenApi specification (example <a href="https://github.com/anymaniax/orval/blob/master/samples/basic/petstore.yaml" target="_blank"> petstore.yaml</a>).
+You should define a OpenAPI specification (example <a href="https://github.com/orval-labs/orval/blob/master/samples/basic/petstore.yaml" target="_blank"> petstore.yaml</a>).
 
 And then create a file `orval.config.js` at root of your project:
 
@@ -30,7 +30,7 @@ The output options configure what and where you want to write the generated code
 - `mode` is where you define the way you want to generate your files (default: `single` - only one file with everything)
 - `target` is where the generated will be written by default
 - `schemas` is where the models will be written.
-- `mock` is when you want to generate mocks with MSW. he will be generated in the target file. You can check <a href="https://mswjs.io/" target="_blank">MSW</a> to setup them correctly
+- `mock` is when you want to generate mocks with the mocks generator (by default MSW). he will be generated in the target file. You can check <a href="https://mswjs.io/" target="_blank">MSW</a> to setup them correctly in your project.
 
 The input options configures the imported specification and also what you want to override on it.
 

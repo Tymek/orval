@@ -1,6 +1,6 @@
 {
   "name": "@orval/query",
-  "version": "6.11.0-alpha.1",
+  "version": "7.1.1",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -8,15 +8,18 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup ./src/index.ts --target node12 --minify --clean --dts --splitting",
-    "dev": "tsup ./src/index.ts --target node12 --clean --watch src",
-    "lint": "eslint src/**/*.ts"
+    "build": "tsup ./src/index.ts --target node12 --clean --sourcemap --dts",
+    "dev": "tsup ./src/index.ts --target node12 --clean --sourcemap --watch src",
+    "lint": "eslint src/**/*.ts",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@orval/core": "6.11.0-alpha.1",
+    "@orval/core": "7.1.1",
+    "@orval/fetch": "7.1.1",
     "lodash.omitby": "^4.6.0"
   },
   "devDependencies": {
-    "@types/lodash.omitby": "^4.6.7"
+    "@types/lodash.omitby": "^4.6.7",
+    "vitest": "^0.34.6"
   }
 }

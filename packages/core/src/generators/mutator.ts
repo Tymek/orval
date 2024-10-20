@@ -1,4 +1,4 @@
-import { Parser } from 'acorn';
+import acorn, { Parser } from 'acorn';
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import {
@@ -6,14 +6,9 @@ import {
   GeneratorMutatorParsingInfo,
   NormalizedMutator,
   Tsconfig,
+  TsConfigTarget,
 } from '../types';
-import {
-  createLogger,
-  getFileInfo,
-  loadFile,
-  pascal,
-  relativeSafe,
-} from '../utils';
+import { createLogger, getFileInfo, loadFile, pascal, upath } from '../utils';
 
 export const BODY_TYPE_NAME = 'BodyType';
 
@@ -21,7 +16,7 @@ const getImport = (output: string, mutator: NormalizedMutator) => {
   const outputFileInfo = getFileInfo(output);
   const mutatorFileInfo = getFileInfo(mutator.path);
   const { pathWithoutExtension } = getFileInfo(
-    relativeSafe(outputFileInfo.dirname, mutatorFileInfo.path),
+    upath.relativeSafe(outputFileInfo.dirname, mutatorFileInfo.path),
   );
 
   return pathWithoutExtension;
@@ -47,7 +42,9 @@ export const generateMutator = async ({
   const importName = mutator.name ? mutator.name : `${name}Mutator`;
   const importPath = mutator.path;
 
-  const rawFile = await fs.readFile(importPath, 'utf8');
+  let rawFile = await fs.readFile(importPath, 'utf8');
+
+  rawFile = removeComments(rawFile);
 
   const hasErrorType =
     rawFile.includes('export type ErrorType') ||
@@ -75,7 +72,12 @@ export const generateMutator = async ({
 
   if (file) {
     const mutatorInfoName = isDefault ? 'default' : mutator.name!;
-    const mutatorInfo = parseFile(file, mutatorInfoName);
+
+    const mutatorInfo = parseFile(
+      file,
+      mutatorInfoName,
+      getEcmaVersion(tsconfig?.compilerOptions?.target),
+    );
 
     if (!mutatorInfo) {
       createLogger().error(
@@ -128,12 +130,41 @@ export const generateMutator = async ({
   }
 };
 
+const getEcmaVersion = (
+  target?: TsConfigTarget,
+): acorn.ecmaVersion | undefined => {
+  if (!target) {
+    return;
+  }
+
+  if (target.toLowerCase() === 'esnext') {
+    return 'latest';
+  }
+
+  try {
+    return Number(target.toLowerCase().replace('es', '')) as acorn.ecmaVersion;
+  } catch {
+    return;
+  }
+};
+
+const removeComments = (file: string) => {
+  // Regular expression to match single-line and multi-line comments
+  const commentRegex = /\/\/.*|\/\*[\s\S]*?\*\//g;
+
+  // Remove comments from the rawFile string
+  const cleanedFile = file.replace(commentRegex, '');
+
+  return cleanedFile;
+};
+
 const parseFile = (
   file: string,
   name: string,
+  ecmaVersion: acorn.ecmaVersion = 6,
 ): GeneratorMutatorParsingInfo | undefined => {
   try {
-    const ast = Parser.parse(file, { ecmaVersion: 6 }) as any;
+    const ast = Parser.parse(file, { ecmaVersion }) as any;
 
     const node = ast?.body?.find((childNode: any) => {
       if (childNode.type === 'ExpressionStatement') {

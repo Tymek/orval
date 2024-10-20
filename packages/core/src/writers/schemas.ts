@@ -1,8 +1,7 @@
 import fs from 'fs-extra';
-import { join } from 'path';
 import { generateImports } from '../generators';
 import { GeneratorSchema } from '../types';
-import { camel } from '../utils';
+import { camel, upath } from '../utils';
 
 const getSchema = ({
   schema: { imports, model },
@@ -36,8 +35,8 @@ const getSchema = ({
   return file;
 };
 
-const getPath = (path: string, name: string): string =>
-  join(path, `/${name}.ts`);
+const getPath = (path: string, name: string, fileExtension: string): string =>
+  upath.join(path, `/${name}${fileExtension}`);
 
 export const writeModelInline = (acc: string, model: string): string =>
   acc + `${model}\n`;
@@ -49,6 +48,7 @@ export const writeSchema = async ({
   path,
   schema,
   target,
+  fileExtension,
   specKey,
   isRootKey,
   specsName,
@@ -57,6 +57,7 @@ export const writeSchema = async ({
   path: string;
   schema: GeneratorSchema;
   target: string;
+  fileExtension: string;
   specKey: string;
   isRootKey: boolean;
   specsName: Record<string, string>;
@@ -66,7 +67,7 @@ export const writeSchema = async ({
 
   try {
     await fs.outputFile(
-      getPath(path, name),
+      getPath(path, name, fileExtension),
       getSchema({ schema, target, isRootKey, specsName, header, specKey }),
     );
   } catch (e) {
@@ -78,28 +79,30 @@ export const writeSchemas = async ({
   schemaPath,
   schemas,
   target,
+  fileExtension,
   specKey,
   isRootKey,
   specsName,
   header,
+  indexFiles,
 }: {
   schemaPath: string;
   schemas: GeneratorSchema[];
   target: string;
+  fileExtension: string;
   specKey: string;
   isRootKey: boolean;
   specsName: Record<string, string>;
   header: string;
+  indexFiles: boolean;
 }) => {
-  const schemaFilePath = join(schemaPath, '/index.ts');
-  await fs.ensureFile(schemaFilePath);
-
   await Promise.all(
     schemas.map((schema) =>
       writeSchema({
         path: schemaPath,
         schema,
         target,
+        fileExtension,
         specKey,
         isRootKey,
         specsName,
@@ -108,30 +111,69 @@ export const writeSchemas = async ({
     ),
   );
 
-  try {
-    const data = await fs.readFile(schemaFilePath);
+  if (indexFiles) {
+    const schemaFilePath = upath.join(schemaPath, `/index${fileExtension}`);
+    await fs.ensureFile(schemaFilePath);
 
-    const stringData = data.toString();
-
-    const importStatements = schemas
-      .filter((schema) => {
-        return (
-          !stringData.includes(`export * from './${camel(schema.name)}'`) &&
-          !stringData.includes(`export * from "./${camel(schema.name)}"`)
+    // Ensure separate files are used for parallel schema writing.
+    // Throw an exception, which list all duplicates, before attempting
+    // multiple writes on the same file.
+    const schemaNamesSet = new Set<string>();
+    const duplicateNamesMap = new Map<string, number>();
+    schemas.forEach((schema) => {
+      if (!schemaNamesSet.has(schema.name)) {
+        schemaNamesSet.add(schema.name);
+      } else {
+        duplicateNamesMap.set(
+          schema.name,
+          (duplicateNamesMap.get(schema.name) || 0) + 1,
         );
-      })
-      .map((schema) => `export * from './${camel(schema.name)}';`);
+      }
+    });
+    if (duplicateNamesMap.size) {
+      throw new Error(
+        'Duplicate schema names detected:\n' +
+          Array.from(duplicateNamesMap)
+            .map((duplicate) => `  ${duplicate[1]}x ${duplicate[0]}`)
+            .join('\n'),
+      );
+    }
 
-    const currentFileExports = (stringData
-      .match(/export \* from(.*)('|")/g)
-      ?.map((s) => s + ';') ?? []) as string[];
+    try {
+      const data = await fs.readFile(schemaFilePath);
 
-    const fileContent = [...currentFileExports, ...importStatements]
-      .sort()
-      .join('\n');
+      const stringData = data.toString();
 
-    await fs.writeFile(schemaFilePath, fileContent);
-  } catch (e) {
-    throw `Oups... 🍻. An Error occurred while writing schema index file ${schemaFilePath} => ${e}`;
+      const ext = fileExtension.endsWith('.ts')
+        ? fileExtension.slice(0, -3)
+        : fileExtension;
+
+      const importStatements = schemas
+        .filter((schema) => {
+          return (
+            !stringData.includes(
+              `export * from './${camel(schema.name)}${ext}'`,
+            ) &&
+            !stringData.includes(
+              `export * from "./${camel(schema.name)}${ext}"`,
+            )
+          );
+        })
+        .map((schema) => `export * from './${camel(schema.name)}${ext}';`);
+
+      const currentFileExports = (stringData
+        .match(/export \* from(.*)('|")/g)
+        ?.map((s) => s + ';') ?? []) as string[];
+
+      const exports = [...currentFileExports, ...importStatements]
+        .sort()
+        .join('\n');
+
+      const fileContent = `${header}\n${exports}`;
+
+      await fs.writeFile(schemaFilePath, fileContent);
+    } catch (e) {
+      throw `Oups... 🍻. An Error occurred while writing schema index file ${schemaFilePath} => ${e}`;
+    }
   }
 };

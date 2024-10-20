@@ -1,7 +1,8 @@
 import {
   asyncReduce,
   ConfigExternal,
-  errorMessage,
+  upath,
+  logError,
   getFileInfo,
   GlobalOptions,
   isFunction,
@@ -9,11 +10,9 @@ import {
   loadFile,
   log,
   NormalizedOptions,
-  NormizaledConfig,
+  NormalizedConfig,
   removeFiles,
 } from '@orval/core';
-import chalk from 'chalk';
-import { dirname } from 'path';
 import { importSpecs } from './import-specs';
 import { normalizeOptions } from './utils/options';
 import { startWatcher } from './utils/watcher';
@@ -49,7 +48,7 @@ export const generateSpec = async (
 };
 
 export const generateSpecs = async (
-  config: NormizaledConfig,
+  config: NormalizedConfig,
   workspace: string,
   projectName?: string,
 ) => {
@@ -60,27 +59,33 @@ export const generateSpecs = async (
       try {
         await generateSpec(workspace, options, projectName);
       } catch (e) {
-        log(chalk.red(`🛑  ${projectName ? `${projectName} - ` : ''}${e}`));
+        logError(e, projectName);
+        process.exit(1);
       }
     } else {
-      errorMessage('Project not found');
+      logError('Project not found');
       process.exit(1);
     }
     return;
   }
 
-  return asyncReduce(
+  let hasErrors: true | undefined;
+  const accumulate = asyncReduce(
     Object.entries(config),
     async (acc, [projectName, options]) => {
       try {
         acc.push(await generateSpec(workspace, options, projectName));
       } catch (e) {
-        log(chalk.red(`🛑  ${projectName ? `${projectName} - ` : ''}${e}`));
+        hasErrors = true;
+        logError(e, projectName);
       }
       return acc;
     },
     [] as void[],
   );
+
+  if (hasErrors) process.exit(1);
+  return accumulate;
 };
 
 export const generateConfig = async (
@@ -99,7 +104,7 @@ export const generateConfig = async (
     throw `failed to load from ${path} => ${error}`;
   }
 
-  const workspace = dirname(path);
+  const workspace = upath.dirname(path);
 
   const config = await (isFunction(configExternal)
     ? configExternal()
@@ -112,7 +117,7 @@ export const generateConfig = async (
 
       return acc;
     },
-    {} as NormizaledConfig,
+    {} as NormalizedConfig,
   );
 
   const fileToWatch = Object.entries(normalizedConfig)

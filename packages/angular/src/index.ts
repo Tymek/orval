@@ -27,6 +27,8 @@ const ANGULAR_DEPENDENCIES: GeneratorDependency[] = [
       { name: 'HttpHeaders' },
       { name: 'HttpParams' },
       { name: 'HttpContext' },
+      { name: 'HttpResponse', alias: 'AngularHttpResponse' }, // alias to prevent naming conflict with msw
+      { name: 'HttpEvent' },
     ],
     dependency: '@angular/common/http',
   },
@@ -125,6 +127,7 @@ const generateImplementation = (
     override,
     formData,
     formUrlEncoded,
+    paramsSerializer,
   }: GeneratorVerbOptions,
   { route, context }: GeneratorOptions,
 ) => {
@@ -132,7 +135,7 @@ const generateImplementation = (
   const isFormData = override?.formData !== false;
   const isFormUrlEncoded = override?.formUrlEncoded !== false;
   const isExactOptionalPropertyTypes =
-    !!context.tsconfig?.compilerOptions?.exactOptionalPropertyTypes;
+    !!context.output.tsconfig?.compilerOptions?.exactOptionalPropertyTypes;
   const isBodyVerb = VERBS_WITH_BODY.includes(verb);
   const bodyForm = generateFormDataAndUrlEncodedFunction({
     formData,
@@ -204,12 +207,21 @@ const generateImplementation = (
     requestOptions: override?.requestOptions,
     isFormData,
     isFormUrlEncoded,
+    paramsSerializer,
+    paramsSerializerOptions: override?.paramsSerializerOptions,
     isAngular: true,
     isExactOptionalPropertyTypes,
     hasSignal: false,
   });
 
-  return ` ${operationName}<TData = ${dataType}>(\n    ${toObjectString(
+  const propsDefinition = toObjectString(props, 'definition');
+  const overloads = isRequestOptions
+    ? `${operationName}<TData = ${dataType}>(\n    ${propsDefinition} options?: Omit<HttpClientOptions, 'observe'> & { observe?: 'body' }\n  ): Observable<TData>;
+    ${operationName}<TData = ${dataType}>(\n    ${propsDefinition} options?: Omit<HttpClientOptions, 'observe'> & { observe?: 'response' }\n  ): Observable<AngularHttpResponse<TData>>;
+    ${operationName}<TData = ${dataType}>(\n    ${propsDefinition} options?: Omit<HttpClientOptions, 'observe'> & { observe?: 'events' }\n  ): Observable<HttpEvent<TData>>;`
+    : '';
+
+  return ` ${overloads}${operationName}<TData = ${dataType}>(\n    ${toObjectString(
     props,
     'implementation',
   )} ${

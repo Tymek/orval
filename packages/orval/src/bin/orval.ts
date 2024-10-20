@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-import { isString, log, startMessage } from '@orval/core';
+import { isString, logError, startMessage } from '@orval/core';
 import { cac } from 'cac';
-import chalk from 'chalk';
 import { generateConfig, generateSpec } from '../generate';
 import pkg from '../../package.json';
 import { normalizeOptions } from '../utils/options';
@@ -39,6 +38,7 @@ cli
   .option('--clean [path]', 'Clean output directory')
   .option('--prettier [path]', 'Prettier generated files')
   .option('--tslint [path]', 'tslint generated files')
+  .option('--biome [path]', 'biome generated files')
   .option('--tsconfig [path]', 'path to your tsconfig file')
   .action(async (paths, cmd) => {
     if (!cmd.config && isString(cmd.input) && isString(cmd.output)) {
@@ -49,6 +49,7 @@ cli
           clean: cmd.clean,
           prettier: cmd.prettier,
           tslint: cmd.tslint,
+          biome: cmd.biome,
           mock: cmd.mock,
           client: cmd.client,
           mode: cmd.mode,
@@ -63,7 +64,7 @@ cli
             try {
               await generateSpec(process.cwd(), normalizedOptions);
             } catch (e) {
-              log(chalk.red(`🛑  ${e}`));
+              logError(e);
             }
           },
           normalizedOptions.input.target as string,
@@ -72,7 +73,7 @@ cli
         try {
           await generateSpec(process.cwd(), normalizedOptions);
         } catch (e) {
-          log(chalk.red(`🛑  ${e}`));
+          logError(e);
         }
       }
     } else {
@@ -82,6 +83,7 @@ cli
         clean: cmd.clean,
         prettier: cmd.prettier,
         tslint: cmd.tslint,
+        biome: cmd.biome,
         mock: cmd.mock,
         client: cmd.client,
         mode: cmd.mode,

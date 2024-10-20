@@ -1,5 +1,6 @@
-import { resolve } from 'path';
+import { pathToFileURL } from 'url';
 import { isModule, isObject, isString } from './assertion';
+import { resolve } from './path';
 
 export const dynamicImport = async <T>(
   toImport: T | string,
@@ -13,7 +14,10 @@ export const dynamicImport = async <T>(
   try {
     if (isString(toImport)) {
       const path = resolve(from, toImport);
-      const data = await import(path);
+      // use pathToFileURL to solve issue #1332.
+      // https://github.com/nodejs/node/issues/31710
+      const fileUrl = pathToFileURL(path);
+      const data = await import(fileUrl.href);
       if (takeDefault && (isObject(data) || isModule(data)) && data.default) {
         return (data as any).default as T;
       }

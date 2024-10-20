@@ -46,6 +46,16 @@
           "editUrl": "/guides/basics.md"
         },
         {
+          "title": "Fetch client",
+          "path": "/guides/fetch-client",
+          "editUrl": "/guides/fetch-client.md"
+        },
+        {
+          "title": "Fetch API",
+          "path": "/guides/fetch",
+          "editUrl": "/guides/fetch.md"
+        },
+        {
           "title": "React query",
           "path": "/guides/react-query",
           "editUrl": "/guides/react-query.md"
@@ -69,6 +79,26 @@
           "title": "SWR",
           "path": "/guides/swr",
           "editUrl": "/guides/swr.md"
+        },
+        {
+          "title": "MSW",
+          "path": "/guides/msw",
+          "editUrl": "/guides/msw.md"
+        },
+        {
+          "title": "Zod",
+          "path": "/guides/zod",
+          "editUrl": "/guides/zod.md"
+        },
+        {
+          "title": "Client with Zod",
+          "path": "/guides/client-with-zod",
+          "editUrl": "/guides/client-with-zod.md"
+        },
+        {
+          "title": "Hono",
+          "path": "/guides/hono",
+          "editUrl": "/guides/hono.md"
         }
       ]
     },

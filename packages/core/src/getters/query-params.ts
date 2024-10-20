@@ -1,4 +1,4 @@
-import { ContentObject, SchemaObject } from 'openapi3-ts';
+import { ContentObject, SchemaObject } from 'openapi3-ts/oas30';
 import { resolveValue } from '../resolvers';
 import {
   ContextSpecs,
@@ -7,7 +7,7 @@ import {
   GetterParameters,
   GetterQueryParam,
 } from '../types';
-import { pascal, sanitize } from '../utils';
+import { jsDoc, pascal, sanitize } from '../utils';
 import { getEnum } from './enum';
 import { getKey } from './keys';
 
@@ -15,6 +15,7 @@ type QueryParamsType = {
   definition: string;
   imports: GeneratorImport[];
   schemas: GeneratorSchema[];
+  originalSchema: SchemaObject;
 };
 
 const getQueryParamsTypes = (
@@ -23,7 +24,12 @@ const getQueryParamsTypes = (
   context: ContextSpecs,
 ): QueryParamsType[] => {
   return queryParams.map(({ parameter, imports: parameterImports }) => {
-    const { name, required, schema, content } = parameter as {
+    const {
+      name,
+      required,
+      schema: schemaParam,
+      content,
+    } = parameter as {
       name: string;
       required: boolean;
       schema: SchemaObject;
@@ -38,53 +44,59 @@ const getQueryParamsTypes = (
       es5IdentifierName: true,
     });
 
-    const resolvedeValue = resolveValue({
-      schema: (schema || content['application/json'].schema)!,
+    const schema = (schemaParam || content['application/json'].schema)!;
+
+    const resolvedValue = resolveValue({
+      schema,
       context,
       name: queryName,
     });
 
     const key = getKey(name);
+    const doc = jsDoc(parameter);
 
     if (parameterImports.length) {
       return {
-        definition: `${key}${!required || schema.default ? '?' : ''}: ${
+        definition: `${doc}${key}${!required || schema.default ? '?' : ''}: ${
           parameterImports[0].name
-        }`,
+        };`,
         imports: parameterImports,
         schemas: [],
+        originalSchema: resolvedValue.originalSchema,
       };
     }
 
-    if (resolvedeValue.isEnum && !resolvedeValue.isRef) {
+    if (resolvedValue.isEnum && !resolvedValue.isRef) {
       const enumName = queryName;
-
       const enumValue = getEnum(
-        resolvedeValue.value,
+        resolvedValue.value,
         enumName,
-        resolvedeValue.originalSchema?.['x-enumNames'],
+        resolvedValue.originalSchema?.['x-enumNames'],
+        context.output.override.useNativeEnums,
       );
 
       return {
-        definition: `${key}${
+        definition: `${doc}${key}${
           !required || schema.default ? '?' : ''
-        }: ${enumName}`,
+        }: ${enumName};`,
         imports: [{ name: enumName }],
         schemas: [
-          ...resolvedeValue.schemas,
-          { name: enumName, model: enumValue, imports: resolvedeValue.imports },
+          ...resolvedValue.schemas,
+          { name: enumName, model: enumValue, imports: resolvedValue.imports },
         ],
+        originalSchema: resolvedValue.originalSchema,
       };
     }
 
-    const definition = `${key}${!required || schema.default ? '?' : ''}: ${
-      resolvedeValue.value
-    }`;
+    const definition = `${doc}${key}${
+      !required || schema.default ? '?' : ''
+    }: ${resolvedValue.value};`;
 
     return {
       definition,
-      imports: resolvedeValue.imports,
-      schemas: resolvedeValue.schemas,
+      imports: resolvedValue.imports,
+      schemas: resolvedValue.schemas,
+      originalSchema: resolvedValue.originalSchema,
     };
   });
 };
@@ -108,12 +120,12 @@ export const getQueryParams = ({
   const schemas = types.flatMap(({ schemas }) => schemas);
   const name = `${pascal(operationName)}${pascal(suffix)}`;
 
-  const type = types.map(({ definition }) => definition).join('; ');
+  const type = types.map(({ definition }) => definition).join('\n');
   const allOptional = queryParams.every(({ parameter }) => !parameter.required);
 
   const schema = {
     name,
-    model: `export type ${name} = { ${type} };\n`,
+    model: `export type ${name} = {\n${type}\n};\n`,
     imports,
   };
 

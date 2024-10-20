@@ -6,15 +6,21 @@ import {
   NormalizedMutator,
   NormalizedQueryOptions,
   QueryOptions,
+  OutputClient,
+  OutputClientFunc,
+  upath,
+  GetterProps,
+  GetterPropType,
+  TEMPLATE_TAG_REGEX,
 } from '@orval/core';
 import chalk from 'chalk';
-import path from 'path';
 
 export const normalizeQueryOptions = (
   queryOptions: QueryOptions = {},
   outputWorkspace: string,
 ): NormalizedQueryOptions => {
   return {
+    ...(queryOptions.usePrefetch ? { usePrefetch: true } : {}),
     ...(queryOptions.useQuery ? { useQuery: true } : {}),
     ...(queryOptions.useInfinite ? { useInfinite: true } : {}),
     ...(queryOptions.useInfiniteQueryParam
@@ -43,6 +49,15 @@ export const normalizeQueryOptions = (
         }
       : {}),
     ...(queryOptions.signal ? { signal: true } : {}),
+    ...(queryOptions.shouldExportMutatorHooks
+      ? { shouldExportMutatorHooks: true }
+      : {}),
+    ...(queryOptions.shouldExportQueryKey
+      ? { shouldExportQueryKey: true }
+      : {}),
+    ...(queryOptions.shouldExportHttpClient
+      ? { shouldExportHttpClient: true }
+      : {}),
   };
 };
 
@@ -59,17 +74,59 @@ const normalizeMutator = <T>(
 
     return {
       ...mutator,
-      path: path.resolve(workspace, mutator.path),
+      path: upath.resolve(workspace, mutator.path),
       default: (mutator.default || !mutator.name) ?? false,
     };
   }
 
   if (isString(mutator)) {
     return {
-      path: path.resolve(workspace, mutator),
+      path: upath.resolve(workspace, mutator),
       default: true,
     };
   }
 
   return mutator;
 };
+
+export function vueWrapTypeWithMaybeRef(props: GetterProps): GetterProps {
+  return props.map((prop) => {
+    const [paramName, paramType] = prop.implementation.split(':');
+    if (!paramType) return prop;
+    const name =
+      prop.type === GetterPropType.NAMED_PATH_PARAMS
+        ? prop.name
+        : `${paramName}`;
+
+    const [type, defaultValue] = paramType.split('=');
+    return {
+      ...prop,
+      implementation: `${name}: MaybeRef<${type.trim()}>${
+        defaultValue ? ` = ${defaultValue}` : ''
+      }`,
+    };
+  });
+}
+
+export const vueUnRefParams = (props: GetterProps): string => {
+  return props
+    .map((prop) => {
+      if (prop.type === GetterPropType.NAMED_PATH_PARAMS) {
+        return `const ${prop.destructured} = unref(${prop.name});`;
+      }
+      return `${prop.name} = unref(${prop.name});`;
+    })
+    .join('\n');
+};
+
+export const wrapRouteParameters = (
+  route: string,
+  prepend: string,
+  append: string,
+): string => route.replaceAll(TEMPLATE_TAG_REGEX, `\${${prepend}$1${append}}`);
+
+export const makeRouteSafe = (route: string): string =>
+  wrapRouteParameters(route, 'encodeURIComponent(String(', '))');
+
+export const isVue = (client: OutputClient | OutputClientFunc) =>
+  OutputClient.VUE_QUERY === client;

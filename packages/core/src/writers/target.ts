@@ -20,15 +20,23 @@ export const generateTarget = (
     outputClient: options.client,
     title: pascal(builder.info.title),
     customTitleFunc: options.override.title,
+    output: options,
   });
 
   const target = Object.values(builder.operations).reduce(
     (acc, operation, index, arr) => {
       acc.imports.push(...operation.imports);
-      acc.importsMSW.push(...operation.importsMSW);
+      acc.importsMock.push(...operation.importsMock);
       acc.implementation += operation.implementation + '\n';
-      acc.implementationMSW.function += operation.implementationMSW.function;
-      acc.implementationMSW.handler += operation.implementationMSW.handler;
+      acc.implementationMock.function += operation.implementationMock.function;
+      acc.implementationMock.handler += operation.implementationMock.handler;
+
+      const handlerNameSeparator = acc.implementationMock.handlerName.length
+        ? ',\n  '
+        : '  ';
+      acc.implementationMock.handlerName +=
+        handlerNameSeparator + operation.implementationMock.handlerName + '()';
+
       if (operation.mutator) {
         acc.mutators.push(operation.mutator);
       }
@@ -38,6 +46,9 @@ export const generateTarget = (
       }
       if (operation.formUrlEncoded) {
         acc.formUrlEncoded.push(operation.formUrlEncoded);
+      }
+      if (operation.paramsSerializer) {
+        acc.paramsSerializer.push(operation.paramsSerializer);
       }
 
       if (operation.clientMutators) {
@@ -64,10 +75,16 @@ export const generateTarget = (
           provideIn: options.override.angular.provideIn,
           hasAwaitedType,
           titles,
+          output: options,
+          verbOptions: builder.verbOptions,
+          clientImplementation: acc.implementation,
         });
+
         acc.implementation = header.implementation + acc.implementation;
-        acc.implementationMSW.handler =
-          header.implementationMSW + acc.implementationMSW.handler;
+        acc.implementationMock.handler =
+          acc.implementationMock.handler +
+          header.implementationMock +
+          acc.implementationMock.handlerName;
 
         const footer = builder.footer({
           outputClient: options?.client,
@@ -75,30 +92,33 @@ export const generateTarget = (
           hasMutator: !!acc.mutators.length,
           hasAwaitedType,
           titles,
+          output: options,
         });
         acc.implementation += footer.implementation;
-        acc.implementationMSW.handler += footer.implementationMSW;
+        acc.implementationMock.handler += footer.implementationMock;
       }
       return acc;
     },
     {
       imports: [],
       implementation: '',
-      implementationMSW: {
+      implementationMock: {
         function: '',
         handler: '',
+        handlerName: '',
       },
-      importsMSW: [],
+      importsMock: [],
       mutators: [],
       clientMutators: [],
       formData: [],
       formUrlEncoded: [],
+      paramsSerializer: [],
     } as Required<GeneratorTargetFull>,
   );
 
   return {
     ...target,
-    implementationMSW:
-      target.implementationMSW.function + target.implementationMSW.handler,
+    implementationMock:
+      target.implementationMock.function + target.implementationMock.handler,
   };
 };

@@ -36,11 +36,29 @@ const AXIOS_DEPENDENCIES: GeneratorDependency[] = [
   },
 ];
 
+const PARAMS_SERIALIZER_DEPENDENCIES: GeneratorDependency[] = [
+  {
+    exports: [
+      {
+        name: 'qs',
+        default: true,
+        values: true,
+        syntheticDefaultImport: true,
+      },
+    ],
+    dependency: 'qs',
+  },
+];
+
 const returnTypesToWrite: Map<string, (title?: string) => string> = new Map();
 
 export const getAxiosDependencies: ClientDependenciesBuilder = (
   hasGlobalMutator,
-) => [...(!hasGlobalMutator ? AXIOS_DEPENDENCIES : [])];
+  hasParamsSerializerOptions: boolean,
+) => [
+  ...(!hasGlobalMutator ? AXIOS_DEPENDENCIES : []),
+  ...(hasParamsSerializerOptions ? PARAMS_SERIALIZER_DEPENDENCIES : []),
+];
 
 const generateAxiosImplementation = (
   {
@@ -55,6 +73,7 @@ const generateAxiosImplementation = (
     override,
     formData,
     formUrlEncoded,
+    paramsSerializer,
   }: GeneratorVerbOptions,
   { route, context }: GeneratorOptions,
 ) => {
@@ -62,10 +81,10 @@ const generateAxiosImplementation = (
   const isFormData = override?.formData !== false;
   const isFormUrlEncoded = override?.formUrlEncoded !== false;
   const isExactOptionalPropertyTypes =
-    !!context.tsconfig?.compilerOptions?.exactOptionalPropertyTypes;
+    !!context.output.tsconfig?.compilerOptions?.exactOptionalPropertyTypes;
 
   const isSyntheticDefaultImportsAllowed = isSyntheticDefaultImportsAllow(
-    context.tsconfig,
+    context.output.tsconfig,
   );
 
   const bodyForm = generateFormDataAndUrlEncodedFunction({
@@ -121,7 +140,7 @@ const generateAxiosImplementation = (
 
     return `const ${operationName} = (\n    ${propsImplementation}\n ${
       isRequestOptions && mutator.hasSecondArg
-        ? `options?: SecondParameter<typeof ${mutator.name}>,`
+        ? `options${context.output.optionsParamRequired ? '' : '?'}: SecondParameter<typeof ${mutator.name}>,`
         : ''
     }) => {${bodyForm}
       return ${mutator.name}<${response.definition.success || 'unknown'}>(
@@ -141,6 +160,8 @@ const generateAxiosImplementation = (
     requestOptions: override?.requestOptions,
     isFormData,
     isFormUrlEncoded,
+    paramsSerializer,
+    paramsSerializerOptions: override?.paramsSerializerOptions,
     isExactOptionalPropertyTypes,
     hasSignal: false,
   });
@@ -178,13 +199,7 @@ export const generateAxiosHeader: ClientHeaderBuilder = ({
 }) => `
 ${
   isRequestOptions && isMutator
-    ? `// eslint-disable-next-line
-  type SecondParameter<T extends (...args: any) => any> = T extends (
-  config: any,
-  args: infer P,
-) => any
-  ? P
-  : never;\n\n`
+    ? `type SecondParameter<T extends (...args: any) => any> = Parameters<T>[1];\n\n`
     : ''
 }
   ${!noFunction ? `export const ${title} = () => {\n` : ''}`;

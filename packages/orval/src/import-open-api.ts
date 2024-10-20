@@ -6,7 +6,6 @@ import {
   generateParameterDefinition,
   generateSchemasDefinition,
   GeneratorSchema,
-  getSchemaFileName,
   ibmOpenapiValidator,
   ImportOpenApi,
   InputOptions,
@@ -15,10 +14,11 @@ import {
   isSchema,
   NormalizedOutputOptions,
   openApiConverter,
+  upath,
   WriteSpecsBuilder,
 } from '@orval/core';
 import omit from 'lodash.omit';
-import { OpenAPIObject, SchemasObject } from 'openapi3-ts';
+import { OpenAPIObject, SchemasObject } from 'openapi3-ts/oas30';
 import { getApiBuilder } from './api';
 
 export const importOpenApi = async ({
@@ -30,19 +30,18 @@ export const importOpenApi = async ({
 }: ImportOpenApi): Promise<WriteSpecsBuilder> => {
   const specs = await generateInputSpecs({ specs: data, input, workspace });
 
-  const schemas = getApiSchemas({ output, target, workspace, specs });
+  const schemas = getApiSchemas({ input, output, target, workspace, specs });
 
   const api = await getApiBuilder({
+    // @ts-expect-error // FIXME
+    input,
     output,
     context: {
       specKey: target,
       target,
       workspace,
       specs,
-      override: output.override,
-      tslint: output.tslint,
-      tsconfig: output.tsconfig,
-      packageJson: output.packageJson,
+      output,
     },
   });
 
@@ -94,69 +93,74 @@ const generateInputSpecs = async ({
 };
 
 const getApiSchemas = ({
+  input,
   output,
   target,
   workspace,
   specs,
 }: {
+  input: InputOptions;
   output: NormalizedOutputOptions;
   workspace: string;
   target: string;
   specs: Record<string, OpenAPIObject>;
 }) => {
-  return Object.entries(specs).reduce((acc, [specKey, spec]) => {
-    const context: ContextSpecs = {
-      specKey,
-      target,
-      workspace,
-      specs,
-      override: output.override,
-      tslint: output.tslint,
-      tsconfig: output.tsconfig,
-      packageJson: output.packageJson,
-    };
+  return Object.entries(specs).reduce(
+    (acc, [specKey, spec]) => {
+      const context: ContextSpecs = {
+        specKey,
+        target,
+        workspace,
+        specs,
+        output,
+      };
 
-    const schemaDefinition = generateSchemasDefinition(
-      !spec.openapi
-        ? getAllSchemas(spec, specKey)
-        : (spec.components?.schemas as SchemasObject),
-      context,
-      output.override.components.schemas.suffix,
-    );
+      const parsedSchemas = spec.openapi
+        ? (spec.components?.schemas as SchemasObject)
+        : getAllSchemas(spec, specKey);
 
-    const responseDefinition = generateComponentDefinition(
-      spec.components?.responses,
-      context,
-      output.override.components.responses.suffix,
-    );
+      const schemaDefinition = generateSchemasDefinition(
+        parsedSchemas,
+        context,
+        output.override.components.schemas.suffix,
+        input.filters?.schemas,
+      );
 
-    const bodyDefinition = generateComponentDefinition(
-      spec.components?.requestBodies,
-      context,
-      output.override.components.requestBodies.suffix,
-    );
+      const responseDefinition = generateComponentDefinition(
+        spec.components?.responses,
+        context,
+        output.override.components.responses.suffix,
+      );
 
-    const parameters = generateParameterDefinition(
-      spec.components?.parameters,
-      context,
-      output.override.components.parameters.suffix,
-    );
+      const bodyDefinition = generateComponentDefinition(
+        spec.components?.requestBodies,
+        context,
+        output.override.components.requestBodies.suffix,
+      );
 
-    const schemas = [
-      ...schemaDefinition,
-      ...responseDefinition,
-      ...bodyDefinition,
-      ...parameters,
-    ];
+      const parameters = generateParameterDefinition(
+        spec.components?.parameters,
+        context,
+        output.override.components.parameters.suffix,
+      );
 
-    if (!schemas.length) {
+      const schemas = [
+        ...schemaDefinition,
+        ...responseDefinition,
+        ...bodyDefinition,
+        ...parameters,
+      ];
+
+      if (!schemas.length) {
+        return acc;
+      }
+
+      acc[specKey] = schemas;
+
       return acc;
-    }
-
-    acc[specKey] = schemas;
-
-    return acc;
-  }, {} as Record<string, GeneratorSchema[]>);
+    },
+    {} as Record<string, GeneratorSchema[]>,
+  );
 };
 
 const getAllSchemas = (spec: object, specKey?: string): SchemasObject => {
@@ -172,7 +176,7 @@ const getAllSchemas = (spec: object, specKey?: string): SchemasObject => {
   ]);
 
   if (specKey && isSchema(cleanedSpec)) {
-    const name = getSchemaFileName(specKey);
+    const name = upath.getSchemaFileName(specKey);
 
     return {
       [name]: cleanedSpec as SchemasObject,

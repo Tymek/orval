@@ -1,4 +1,10 @@
 /* purgecss start ignore */
+
+.contents__list {
+  overflow: overlay;
+  height: calc(((100vh - 4.5rem) - 64px) - 42px);
+}
+
 .contents__link {
   @apply text-gray-700;
 }
@@ -8,6 +14,6 @@
 }
 
 .contents__link--active {
-  @apply font-medium text-coral;
+  @apply font-medium text-coral-default;
 }
 /* purgecss end ignore */

@@ -30,6 +30,36 @@ export default defineConfig({
       },
     },
   },
+  split: {
+    output: {
+      target: '../generated/angular/split/endpoints.ts',
+      schemas: '../generated/angular/split/model',
+      client: 'angular',
+      mode: 'split',
+      mock: true,
+    },
+    input: {
+      target: '../specifications/petstore.yaml',
+      override: {
+        transformer: '../transformers/add-version.js',
+      },
+    },
+  },
+  tags: {
+    output: {
+      target: '../generated/angular/tags/endpoints.ts',
+      schemas: '../generated/angular/tags/model',
+      client: 'angular',
+      mode: 'tags',
+      mock: true,
+    },
+    input: {
+      target: '../specifications/petstore.yaml',
+      override: {
+        transformer: '../transformers/add-version.js',
+      },
+    },
+  },
   customClient: {
     output: {
       target: '../generated/angular/custom-client/endpoints.ts',
@@ -38,6 +68,22 @@ export default defineConfig({
       mock: true,
       override: {
         mutator: '../mutators/custom-client-angular.ts',
+      },
+    },
+    input: {
+      target: '../specifications/petstore.yaml',
+      override: {
+        transformer: '../transformers/add-version.js',
+      },
+    },
+  },
+  namedParameters: {
+    output: {
+      target: '../generated/angular/named-parameters/endpoints.ts',
+      schemas: '../generated/angular/named-parameters/model',
+      client: 'angular',
+      override: {
+        useNamedParameters: true,
       },
     },
     input: {

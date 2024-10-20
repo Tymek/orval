@@ -1,7 +1,6 @@
-import { ReferenceObject, SchemaObject } from 'openapi3-ts';
-import { extname } from 'path';
-import validatorIsUrl from 'validator/lib/isURL';
+import { ReferenceObject, SchemaObject } from 'openapi3-ts/oas30';
 import { SchemaType, Verbs } from '../types';
+import { extname } from './path';
 
 /**
  * Discriminator helper for `ReferenceObject`
@@ -9,7 +8,7 @@ import { SchemaType, Verbs } from '../types';
  * @param property
  */
 export const isReference = (property: any): property is ReferenceObject => {
-  return Boolean(property.$ref);
+  return Boolean(property?.$ref);
 };
 
 export const isDirectory = (path: string) => {
@@ -80,8 +79,12 @@ export const isRootKey = (specKey: string, target: string) => {
   return specKey === target;
 };
 
-const LOCALHOST_REGEX = /^https?:\/\/\w+(\.\w+)*(:[0-9]+)?(\/.*)?$/;
-
 export const isUrl = (str: string) => {
-  return validatorIsUrl(str) || LOCALHOST_REGEX.test(str);
+  let givenURL;
+  try {
+    givenURL = new URL(str);
+  } catch (error) {
+    return false;
+  }
+  return givenURL.protocol === 'http:' || givenURL.protocol === 'https:';
 };

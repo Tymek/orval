@@ -3,7 +3,7 @@ id: svelte-query
 title: Svelte query
 ---
 
-You should have an OpenApi specification and an Orval config where you define the mode as svelte-query.
+You should have an OpenAPI specification and an Orval config where you define the mode as svelte-query.
 
 #### Example with svelte query
 
@@ -26,9 +26,9 @@ module.exports = {
 
 Checkout the [orval config](../reference/configuration/full-example) reference to see all available options.
 
-The svelte query model will generate an implementation file with one custom hook per path in your OpenApi Specification.
+The svelte query model will generate an implementation file with one custom hook per path in your OpenAPI Specification.
 
-Like the following example from this <a href="https://github.com/anymaniax/orval/blob/master/samples/svelte-query/petstore.yaml" target="_blank">swagger</a>:
+Like the following example from this <a href="https://github.com/orval-labs/orval/blob/master/samples/svelte-query/petstore.yaml" target="_blank">swagger</a>:
 
 ```ts
 export const showPetById = (
@@ -118,4 +118,4 @@ module.exports = {
 };
 ```
 
-Checkout <a href="https://github.com/anymaniax/orval/tree/master/samples/svelte-query" target="_blank">here</a> the full example
+Checkout <a href="https://github.com/orval-labs/orval/tree/master/samples/svelte-query" target="_blank">here</a> the full example

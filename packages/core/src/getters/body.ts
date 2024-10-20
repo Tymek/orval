@@ -1,8 +1,8 @@
-import { ReferenceObject, RequestBodyObject } from 'openapi3-ts';
+import { ReferenceObject, RequestBodyObject } from 'openapi3-ts/oas30';
 import { generalJSTypesWithArray } from '../constants';
-import { ContextSpecs, OverrideOutputContentType } from '../types';
-import { GetterBody } from '../types';
-import { camel } from '../utils';
+import { resolveRef } from '../resolvers';
+import { ContextSpecs, GetterBody, OverrideOutputContentType } from '../types';
+import { camel, isReference, sanitize } from '../utils';
 import { getResReqTypes } from './res-req-types';
 
 export const getBody = ({
@@ -17,7 +17,7 @@ export const getBody = ({
   contentType?: OverrideOutputContentType;
 }): GetterBody => {
   const allBodyTypes = getResReqTypes(
-    [[context.override.components.requestBodies.suffix, requestBody]],
+    [[context.output.override.components.requestBodies.suffix, requestBody]],
     operationName,
     context,
   );
@@ -43,18 +43,46 @@ export const getBody = ({
   const schemas = filteredBodyTypes.flatMap(({ schemas }) => schemas);
 
   const definition = filteredBodyTypes.map(({ value }) => value).join(' | ');
+  const hasReadonlyProps = filteredBodyTypes.some((x) => x.hasReadonlyProps);
+  const nonReadonlyDefinition =
+    hasReadonlyProps && definition ? `NonReadonly<${definition}>` : definition;
 
-  const implementation =
+  let implementation =
     generalJSTypesWithArray.includes(definition.toLowerCase()) ||
     filteredBodyTypes.length > 1
-      ? camel(operationName) + context.override.components.requestBodies.suffix
+      ? camel(operationName) +
+        context.output.override.components.requestBodies.suffix
       : camel(definition);
 
+  let isOptional = false;
+  if (implementation) {
+    implementation = sanitize(implementation, {
+      underscore: '_',
+      whitespace: '_',
+      dash: true,
+      es5keyword: true,
+      es5IdentifierName: true,
+    });
+    if (isReference(requestBody)) {
+      const { schema: bodySchema } = resolveRef<RequestBodyObject>(
+        requestBody,
+        context,
+      );
+      if (bodySchema.required !== undefined) {
+        isOptional = !bodySchema.required;
+      }
+    } else if (requestBody.required !== undefined) {
+      isOptional = !requestBody.required;
+    }
+  }
+
   return {
-    definition,
+    originalSchema: requestBody,
+    definition: nonReadonlyDefinition,
     implementation,
     imports,
     schemas,
+    isOptional,
     ...(filteredBodyTypes.length === 1
       ? {
           formData: filteredBodyTypes[0].formData,
